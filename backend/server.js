@@ -62,6 +62,30 @@ app.delete('/api/jobs/:id', (req, res) => {
   }
 });
 
+// Cancel specific job
+app.post('/api/jobs/:id/cancel', (req, res) => {
+  const { id } = req.params;
+  try {
+    const job = db.getJobById(id);
+    if (!job) {
+      return res.status(404).json({ error: 'Scan job not found.' });
+    }
+    if (job.status === 'pending' || job.status === 'running') {
+      db.updateJob(id, {
+        status: 'failed',
+        currentStep: 'Scan cancelled by user.',
+        error: 'Scan cancelled.',
+        finishedAt: new Date().toISOString()
+      });
+      res.json({ success: true, message: 'Scan cancelled successfully.' });
+    } else {
+      res.status(400).json({ error: 'Scan job is not running or pending.' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
@@ -70,6 +94,8 @@ app.get('/api/health', (req, res) => {
 // Start Express Server
 app.listen(PORT, () => {
   console.log(`[Server] Bug Analyzer backend running on http://localhost:${PORT}`);
+  // Reset any jobs that were left running
+  db.resetRunningJobs();
   // Start job queue background worker
   startQueueWorker();
 });

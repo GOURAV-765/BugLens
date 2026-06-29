@@ -24,6 +24,10 @@ export function startQueueWorker() {
       db.updateJob(jobId, { status: 'running', currentStep: 'Configuring sandbox environment...' });
       
       const stepLogger = (stepMsg) => {
+        const currentJob = db.getJobById(jobId);
+        if (!currentJob || currentJob.status === 'failed') {
+          throw new Error('Scan cancelled by user.');
+        }
         console.log(`[Job ${jobId}] ${stepMsg}`);
         db.updateJob(jobId, { currentStep: stepMsg });
       };

@@ -130,5 +130,22 @@ export const db = {
     data.bugs = data.bugs.filter(b => b.jobId !== id);
     writeDb(data);
     return true;
+  },
+
+  resetRunningJobs() {
+    const data = readDb();
+    let updated = false;
+    data.jobs.forEach(job => {
+      if (job.status === 'running' || job.status === 'pending') {
+        job.status = 'failed';
+        job.currentStep = 'Scan interrupted (server restarted or process terminated).';
+        job.error = 'Scan was interrupted.';
+        job.finishedAt = new Date().toISOString();
+        updated = true;
+      }
+    });
+    if (updated) {
+      writeDb(data);
+    }
   }
 };

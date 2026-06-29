@@ -185,6 +185,20 @@ export default function App() {
     }
   };
 
+  // Cancel scan job
+  const handleCancelJob = async (id: string) => {
+    if (!confirm('Are you sure you want to cancel this scan?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/jobs/${id}/cancel`, { method: 'POST' });
+      if (res.ok) {
+        fetchJobDetails(id);
+        fetchJobs();
+      }
+    } catch (err) {
+      console.error('Cancel error:', err);
+    }
+  };
+
   // Calculate stats for current active job
   const getSeverityCount = (severity: string) => {
     if (!activeJobData) return 0;
@@ -415,6 +429,15 @@ export default function App() {
                         }`}
                       />
                     </div>
+
+                    {(activeJobData.job.status === 'pending' || activeJobData.job.status === 'running') && (
+                      <button
+                        onClick={() => handleCancelJob(activeJobData.job.id)}
+                        className="mt-4 w-full bg-red-950/40 hover:bg-red-900/50 text-red-400 border border-red-900/50 font-bold py-2 px-4 rounded-lg text-xs cursor-pointer active:scale-98 transition-all"
+                      >
+                        Cancel Running Scan
+                      </button>
+                    )}
                   </div>
                 )}
               </motion.div>
