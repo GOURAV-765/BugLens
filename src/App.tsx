@@ -12,7 +12,6 @@ import {
   Search, 
   Trash2, 
   ArrowRight, 
-  FileText, 
   Download, 
   ChevronDown, 
   ChevronUp, 
