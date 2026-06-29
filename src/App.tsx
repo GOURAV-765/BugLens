@@ -241,9 +241,9 @@ export default function App() {
       <header className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-neutral-800 pb-6 mb-8 gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Shield className="h-8 w-8 text-purple-500 animate-pulse" />
+            <Search className="h-8 w-8 text-purple-500 animate-pulse" />
             <h1 className="text-3xl font-extrabold tracking-tight">
-              <ShinyText text="BUGSHIELD" className="font-black" />
+              <ShinyText text="BUGLENS" className="font-black" />
             </h1>
             <span className="bg-purple-900/40 text-purple-400 border border-purple-800 text-[10px] px-2 py-0.5 rounded font-mono uppercase tracking-wider">
               V1.0

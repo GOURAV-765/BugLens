@@ -1,5 +1,5 @@
 {
-  "name": "bug-analyzer",
+  "name": "buglens",
   "private": true,
   "version": "0.0.0",
   "type": "module",
