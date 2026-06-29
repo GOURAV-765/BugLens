@@ -172,8 +172,15 @@ Return a raw JSON array matching the structure of input items. Do not put markdo
 // 3. Playwright Web Scanner (High Quality Audits)
 // ----------------------------------------------------
 export async function runPlaywrightScan(url, jobLogger) {
-  jobLogger('Launching headless browser sandbox...');
-  const browser = await chromium.launch({ headless: true });
+  let browser;
+  try {
+    jobLogger('Launching headless browser sandbox...');
+    browser = await chromium.launch({ headless: true });
+  } catch (err) {
+    jobLogger('Playwright browser launch failed (possibly due to serverless constraints). Falling back to Cheerio static analyzer...');
+    return await runCheerioScan(url, jobLogger);
+  }
+
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   });
@@ -496,8 +503,9 @@ export async function runPlaywrightScan(url, jobLogger) {
     jobLogger('Playwright website audit completed successfully.');
     return finalizedBugs;
   } catch (error) {
-    await browser.close();
-    throw new Error(`Website scanning failed: ${error.message}`);
+    if (browser) await browser.close();
+    jobLogger(`Playwright scanner execution failed: ${error.message}. Falling back to static HTML scanner...`);
+    return await runCheerioScan(url, jobLogger);
   }
 }
 
@@ -694,5 +702,283 @@ export async function runGitScan(repoUrl, jobLogger, jobId) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
     throw new Error(`Repository scanning failed: ${error.message}`);
+  }
+}
+
+// ----------------------------------------------------
+// 5. Cheerio HTML Static Analyzer (Fallback for Serverless)
+// ----------------------------------------------------
+export async function runCheerioScan(url, jobLogger) {
+  try {
+    jobLogger(`Connecting and fetching HTML: ${url}`);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch website HTML: HTTP ${response.status} ${response.statusText}`);
+    }
+
+    const htmlContent = await response.text();
+    const $ = cheerio.load(htmlContent);
+
+    // Convert response headers
+    const headers = {};
+    response.headers.forEach((val, key) => {
+      headers[key.toLowerCase()] = val;
+    });
+
+    const securityIssues = [];
+    if (!url.startsWith('https://')) {
+      securityIssues.push({
+        severity: 'high',
+        type: 'security',
+        title: 'Site not using SSL (HTTPS)',
+        message: 'The website is loaded over HTTP. Connection data is not encrypted.',
+        location: 'Protocol Check',
+        groupKey: 'ssl'
+      });
+    }
+
+    const secureHeaders = [
+      { name: 'content-security-policy', label: 'Content-Security-Policy (CSP)', severity: 'high', desc: 'Mitigates XSS and clickjacking attacks.' },
+      { name: 'strict-transport-security', label: 'Strict-Transport-Security (HSTS)', severity: 'medium', desc: 'Enforces secure HTTPS connections.' },
+      { name: 'x-frame-options', label: 'X-Frame-Options', severity: 'medium', desc: 'Protects website users against clickjacking.' },
+      { name: 'x-content-type-options', label: 'X-Content-Type-Options', severity: 'low', desc: 'Prevents browser mime-type sniffing.' },
+      { name: 'referrer-policy', label: 'Referrer-Policy', severity: 'low', desc: 'Controls referrer data sent in request headers.' }
+    ];
+
+    secureHeaders.forEach(sh => {
+      if (!headers[sh.name]) {
+        securityIssues.push({
+          severity: sh.severity,
+          type: 'security',
+          title: `Missing security header: ${sh.label}`,
+          message: `The server response does not contain the "${sh.label}" header. ${sh.desc}`,
+          location: 'HTTP Response Headers',
+          groupKey: 'headers'
+        });
+      }
+    });
+
+    jobLogger('Extracting CSS styles for compatibility audits...');
+    const cssIssues = [];
+    const linkTags = $('link[rel="stylesheet"]').map((i, el) => $(el).attr('href')).get();
+    
+    for (const rawHref of linkTags.slice(0, 5)) {
+      try {
+        const linkHref = new URL(rawHref, url).href;
+        const cssRes = await fetch(linkHref);
+        if (cssRes.ok) {
+          const cssText = await cssRes.text();
+          if (cssText.includes('-webkit-box-reflect') || cssText.includes('-webkit-background-clip: text')) {
+            cssIssues.push({
+              severity: 'low',
+              type: 'quality',
+              title: 'CSS vendor specific prefixed properties',
+              message: `Style at "${linkHref}" contains webkit-only vendor prefixes. Use standard fallback.`,
+              location: linkHref,
+              groupKey: 'css_compat'
+            });
+          }
+          if (cssText.includes('zoom:') && !cssText.includes('zoom: 1')) {
+            cssIssues.push({
+              severity: 'low',
+              type: 'quality',
+              title: 'CSS zoom property compatibility warning',
+              message: 'Found use of the non-standard "zoom" property which is deprecated in modern Firefox engines.',
+              location: linkHref,
+              groupKey: 'css_compat'
+            });
+          }
+        }
+      } catch (err) {}
+    }
+
+    jobLogger('Parsing DOM for SEO, quality, and WCAG accessibility audits...');
+    const accessibilityIssues = [];
+    const seoIssues = [];
+
+    const title = $('title').text().trim();
+    if (!title) {
+      seoIssues.push({
+        severity: 'medium',
+        type: 'seo',
+        title: 'Missing HTML page Title',
+        message: 'The website page is missing a <title> tag in the HTML head.',
+        location: 'HTML Head',
+        groupKey: 'seo'
+      });
+    } else if (title.length < 10 || title.length > 70) {
+      seoIssues.push({
+        severity: 'low',
+        type: 'seo',
+        title: 'Improper title length',
+        message: `Title length (${title.length} chars) is outside optimal range (10-70 characters) for search previews.`,
+        location: `<title> tag: "${title}"`,
+        groupKey: 'seo'
+      });
+    }
+
+    const description = $('meta[name="description"]').attr('content')?.trim();
+    if (!description) {
+      seoIssues.push({
+        severity: 'medium',
+        type: 'seo',
+        title: 'Missing SEO meta description',
+        message: 'The website is missing a meta description in the HTML head.',
+        location: 'HTML Head',
+        groupKey: 'seo'
+      });
+    } else if (description.length < 50 || description.length > 160) {
+      seoIssues.push({
+        severity: 'low',
+        type: 'seo',
+        title: 'Improper meta description length',
+        message: `Description length (${description.length} chars) is outside optimal range (50-160 chars).`,
+        location: `<meta name="description">`,
+        groupKey: 'seo'
+      });
+    }
+
+    const h1 = $('h1');
+    if (h1.length === 0) {
+      seoIssues.push({
+        severity: 'medium',
+        type: 'seo',
+        title: 'Missing H1 heading tag',
+        message: 'The page lacks a main H1 heading tag, which harms SEO search algorithms.',
+        location: 'Page Body',
+        groupKey: 'seo'
+      });
+    } else if (h1.length > 1) {
+      seoIssues.push({
+        severity: 'low',
+        type: 'seo',
+        title: 'Multiple H1 heading tags',
+        message: `Found ${h1.length} H1 headings. Only one primary H1 header should exist per page.`,
+        location: 'Page Body',
+        groupKey: 'seo'
+      });
+    }
+
+    $('img').each((idx, elem) => {
+      const alt = $(elem).attr('alt');
+      const src = $(elem).attr('src') || 'unknown';
+      if (alt === undefined) {
+        accessibilityIssues.push({
+          severity: 'medium',
+          type: 'accessibility',
+          title: 'Image lacks Alt attribute',
+          message: `Image source "${src.substring(0, 80)}" has no alt description. Fails WCAG screen reader check.`,
+          location: `<img> element (src: ${src.substring(0, 80)})`,
+          groupKey: 'alt_tag'
+        });
+      } else if (alt.trim() === '' && !$(elem).attr('role')) {
+        accessibilityIssues.push({
+          severity: 'low',
+          type: 'accessibility',
+          title: 'Empty alt tag without decorative role',
+          message: 'If the image is purely decorative, add role="presentation" or role="none".',
+          location: `<img> element`,
+          groupKey: 'alt_tag'
+        });
+      }
+    });
+
+    $('button').each((idx, elem) => {
+      const text = $(elem).text().trim();
+      const aria = $(elem).attr('aria-label') || $(elem).attr('aria-labelledby');
+      if (!text && !aria) {
+        accessibilityIssues.push({
+          severity: 'high',
+          type: 'accessibility',
+          title: 'Interactive button has no label',
+          message: 'An interactive button is empty and has no ARIA fallback labels.',
+          location: '<button> tag',
+          groupKey: 'button_label'
+        });
+      }
+    });
+
+    const seenIds = {};
+    $('[id]').each((idx, elem) => {
+      const id = $(elem).attr('id');
+      if (id) {
+        if (seenIds[id]) {
+          accessibilityIssues.push({
+            severity: 'medium',
+            type: 'accessibility',
+            title: `Duplicate HTML ID attribute: "${id}"`,
+            message: `The ID value "${id}" is used multiple times in the DOM. Fails HTML/ARIA standards.`,
+            location: `Element using ID="${id}"`,
+            groupKey: 'duplicate_ids'
+          });
+        }
+        seenIds[id] = true;
+      }
+    });
+
+    $('input').each((idx, elem) => {
+      const id = $(elem).attr('id');
+      const name = $(elem).attr('name') || 'unnamed';
+      const label = id ? $(`label[for="${id}"]`) : [];
+      const aria = $(elem).attr('aria-label') || $(elem).attr('aria-labelledby') || $(elem).attr('placeholder');
+      if (label.length === 0 && !aria) {
+        accessibilityIssues.push({
+          severity: 'medium',
+          type: 'accessibility',
+          title: 'Input field has no matching label',
+          message: `The form input field (name: "${name}") does not have a linked label or ARIA identifier.`,
+          location: `<input> tag (name: ${name})`,
+          groupKey: 'input_label'
+        });
+      }
+    });
+
+    jobLogger('Auditing links on target page for broken connections...');
+    const linkBugs = [];
+    const linkUrls = [];
+    $('a').each((idx, elem) => {
+      const href = $(elem).attr('href');
+      if (href && href.startsWith('http')) {
+        linkUrls.push(href);
+      }
+    });
+
+    const uniqueLinks = [...new Set(linkUrls)].slice(0, 15);
+    for (const testLink of uniqueLinks) {
+      try {
+        const linkRes = await fetch(testLink, { method: 'HEAD', timeout: 5000 }).catch(() => null);
+        if (!linkRes || linkRes.status >= 400) {
+          linkBugs.push({
+            severity: 'medium',
+            type: 'quality',
+            title: `Broken Link detected`,
+            message: `Hyperlink target "${testLink}" returned status code ${linkRes ? linkRes.status : 'FAILED/TIMEOUT'}.`,
+            location: `<a href="${testLink}">`,
+            groupKey: 'broken_links'
+          });
+        }
+      } catch (err) {}
+    }
+
+    const accumulatedBugs = [
+      ...securityIssues,
+      ...cssIssues,
+      ...accessibilityIssues,
+      ...seoIssues,
+      ...linkBugs
+    ];
+
+    jobLogger('Invoking Gemini AI Analysis for root cause diagnostic and code fixes...');
+    const finalizedBugs = await getAIAnalysis(accumulatedBugs);
+    jobLogger('Static Cheerio scan completed successfully.');
+    return finalizedBugs;
+  } catch (err) {
+    jobLogger(`Static Cheerio scan failed: ${err.message}`);
+    throw err;
   }
 }

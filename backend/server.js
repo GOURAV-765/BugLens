@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { db } from './database.js';
 import { startQueueWorker } from './queue.js';
+import { runPlaywrightScan, runGitScan } from './scanners.js';
 
 const app = express();
 const PORT = process.env.PORT || 5050;
@@ -19,8 +20,8 @@ app.use((req, res, next) => {
 
 // API Endpoints
 
-// Submit a new scan job
-app.post('/api/scan/submit', (req, res) => {
+// Submit a new scan job (Runs synchronously on serverless/Vercel)
+app.post('/api/scan/submit', async (req, res) => {
   const { url, repoUrl } = req.body;
   if (!url && !repoUrl) {
     return res.status(400).json({ error: 'Please provide either a website URL or a GitHub Repository URL.' });
@@ -28,7 +29,43 @@ app.post('/api/scan/submit', (req, res) => {
 
   try {
     const job = db.createJob({ targetUrl: url, repoUrl: repoUrl });
-    res.status(201).json(job);
+
+    if (process.env.VERCEL) {
+      console.log(`[Vercel Serverless] Running scan synchronously for job ${job.id}`);
+      db.updateJob(job.id, { status: 'running', currentStep: 'Initializing scan...' });
+
+      const stepLogger = (stepMsg) => {
+        console.log(`[Job ${job.id}] ${stepMsg}`);
+        db.updateJob(job.id, { currentStep: stepMsg });
+      };
+
+      let bugs = [];
+      try {
+        if (url) {
+          bugs = await runPlaywrightScan(url, stepLogger);
+        } else {
+          bugs = await runGitScan(repoUrl, stepLogger, job.id);
+        }
+        db.addBugs(job.id, bugs);
+        const completedJob = db.updateJob(job.id, {
+          status: 'completed',
+          currentStep: 'Scan complete!',
+          finishedAt: new Date().toISOString()
+        });
+        res.status(201).json(completedJob);
+      } catch (scanErr) {
+        console.error(`[Vercel Serverless] Sync scan failed:`, scanErr);
+        const failedJob = db.updateJob(job.id, {
+          status: 'failed',
+          currentStep: 'Scan failed',
+          error: scanErr.message,
+          finishedAt: new Date().toISOString()
+        });
+        res.status(201).json(failedJob);
+      }
+    } else {
+      res.status(201).json(job);
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
