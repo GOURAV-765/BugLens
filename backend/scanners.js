@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
@@ -504,7 +505,9 @@ export async function runPlaywrightScan(url, jobLogger) {
 // 4. Git Repository Static Analyzer (Deep Analysis)
 // ----------------------------------------------------
 export async function runGitScan(repoUrl, jobLogger, jobId) {
-  const tempDir = path.join(__dirname, 'temp_clones', jobId);
+  const tempDir = process.env.VERCEL
+    ? path.join(os.tmpdir(), 'temp_clones', jobId)
+    : path.join(__dirname, 'temp_clones', jobId);
   
   try {
     jobLogger(`Executing shallow git clone for: ${repoUrl}`);
