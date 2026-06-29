@@ -197,7 +197,8 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/jobs/${id}/cancel`, { method: 'POST' });
       if (res.ok) {
-        fetchJobDetails(id);
+        setActiveJobId(null);
+        setActiveJobData(null);
         fetchJobs();
       }
     } catch (err) {
