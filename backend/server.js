@@ -9,6 +9,14 @@ const PORT = process.env.PORT || 5050;
 app.use(cors());
 app.use(express.json());
 
+// Middleware to strip Vercel's route prefix from path if it exists
+app.use((req, res, next) => {
+  if (req.url.startsWith('/_/backend')) {
+    req.url = req.url.slice('/_/backend'.length);
+  }
+  next();
+});
+
 // API Endpoints
 
 // Submit a new scan job
