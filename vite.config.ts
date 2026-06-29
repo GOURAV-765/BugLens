@@ -9,6 +9,9 @@ export default defineConfig({
     port: 5180,
     proxy: {
       '/api': 'http://localhost:5050'
+    },
+    watch: {
+      ignored: ['**/backend/**']
     }
   }
 })
