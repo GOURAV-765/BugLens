@@ -78,13 +78,15 @@ export default function App() {
     }
   };
 
-  // Fetch job details
   const fetchJobDetails = async (jobId: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/jobs/${jobId}`);
       if (res.ok) {
         const data = await res.json();
         setActiveJobData(data);
+      } else {
+        setActiveJobId(null);
+        setActiveJobData(null);
       }
     } catch (err) {
       console.error('Error fetching job details:', err);
@@ -115,6 +117,10 @@ export default function App() {
           if (data.job.status === 'completed' || data.job.status === 'failed') {
             clearInterval(interval);
           }
+        } else {
+          clearInterval(interval);
+          setActiveJobId(null);
+          setActiveJobData(null);
         }
       } catch (err) {
         console.error('Polling error:', err);
