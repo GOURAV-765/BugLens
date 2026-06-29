@@ -64,13 +64,14 @@ export default function App() {
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
 
-  // Fetch all jobs
   const fetchJobs = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/jobs`);
       if (res.ok) {
-        const data = await res.json();
-        setJobs(data);
+        const data: Job[] = await res.json();
+        const localJobIds = JSON.parse(localStorage.getItem('buglens_job_ids') || '[]');
+        const myJobs = data.filter(job => localJobIds.includes(job.id));
+        setJobs(myJobs);
       }
     } catch (err) {
       console.error('Error fetching jobs:', err);
@@ -142,6 +143,10 @@ export default function App() {
 
       if (res.ok) {
         const job = await res.json();
+        const localJobIds = JSON.parse(localStorage.getItem('buglens_job_ids') || '[]');
+        localJobIds.push(job.id);
+        localStorage.setItem('buglens_job_ids', JSON.stringify(localJobIds));
+
         setActiveJobId(job.id);
         setTargetUrl('');
         setRepoUrl('');
@@ -165,6 +170,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/jobs/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        const localJobIds = JSON.parse(localStorage.getItem('buglens_job_ids') || '[]');
+        const updatedIds = localJobIds.filter((jobId: string) => jobId !== id);
+        localStorage.setItem('buglens_job_ids', JSON.stringify(updatedIds));
+
         fetchJobs();
         if (activeJobId === id) {
           setActiveJobId(null);
