@@ -49,6 +49,8 @@ interface Bug {
   groupKey: string;
 }
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'scan' | 'history'>('scan');
   const [scanType, setScanType] = useState<'url' | 'repo'>('url');
@@ -65,7 +67,7 @@ export default function App() {
   // Fetch all jobs
   const fetchJobs = async () => {
     try {
-      const res = await fetch('/api/jobs');
+      const res = await fetch(`${API_BASE}/api/jobs`);
       if (res.ok) {
         const data = await res.json();
         setJobs(data);
@@ -78,7 +80,7 @@ export default function App() {
   // Fetch job details
   const fetchJobDetails = async (jobId: string) => {
     try {
-      const res = await fetch(`/api/jobs/${jobId}`);
+      const res = await fetch(`${API_BASE}/api/jobs/${jobId}`);
       if (res.ok) {
         const data = await res.json();
         setActiveJobData(data);
@@ -101,7 +103,7 @@ export default function App() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/jobs/${activeJobId}`);
+        const res = await fetch(`${API_BASE}/api/jobs/${activeJobId}`);
         if (res.ok) {
           const data = await res.json();
           setActiveJobData(data);
@@ -132,7 +134,7 @@ export default function App() {
       : { repoUrl: repoUrl };
 
     try {
-      const res = await fetch('/api/scan/submit', {
+      const res = await fetch(`${API_BASE}/api/scan/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -161,7 +163,7 @@ export default function App() {
     e.stopPropagation();
     if (!confirm('Are you sure you want to delete this scan report?')) return;
     try {
-      const res = await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/api/jobs/${id}`, { method: 'DELETE' });
       if (res.ok) {
         fetchJobs();
         if (activeJobId === id) {
